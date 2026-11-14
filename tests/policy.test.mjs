@@ -1,0 +1,26 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {DatabaseSync} from 'node:sqlite';
+import {approvalDeadline,canPay,canRefund,refundDeadline,paymentDecision,HOUR} from '../lib/policy.mjs';
+import {APPROVE_SQL,EXPIRE_SQL} from '../lib/sql.mjs';
+const now=Date.parse('2026-11-14T10:00:00+09:00');
+const pending={status:'pending',expires_at:null};
+const approved={status:'awaiting_payment',expires_at:approvalDeadline(now)};
+const event={verified:true,amount:100000,currency:'KRW',success:true};
+test('승인 전 결제 거부',()=>{assert.equal(canPay(pending,now),false);});
+test('승인 후 24시간 경계에서 결제 차단',()=>{assert.equal(canPay(approved,now+24*HOUR-1),true);assert.equal(canPay(approved,now+24*HOUR),false);});
+test('결제 실패 후 기한 내 재시도 및 성공',()=>{assert.equal(paymentDecision(approved,{...event,success:false},false,now),'retry');assert.equal(paymentDecision(approved,event,false,now+HOUR),'confirm');});
+test('중복 결제 알림은 재처리하지 않음',()=>{assert.equal(paymentDecision({status:'confirmed'},event,true,now),'duplicate');});
+test('금액 변조 및 검증되지 않은 결제 거절',()=>{assert.equal(paymentDecision(approved,{...event,amount:1},false,now),'invalid');assert.equal(paymentDecision(approved,{...event,verified:false},false,now),'invalid');});
+test('만료 후 도착한 성공 알림은 예약 확정 대신 환불 확인 대상',()=>{assert.equal(paymentDecision(approved,event,false,now+25*HOUR),'refund_required');});
+test('이용일 2일 전 KST 23:59:59까지 환불 요청 가능',()=>{const r={status:'confirmed',start_at:Date.parse('2026-11-20T15:00:00+09:00')};assert.equal(refundDeadline(r.start_at),Date.parse('2026-11-19T00:00:00+09:00'));assert.equal(canRefund(r,Date.parse('2026-11-18T23:59:59.999+09:00')),true);assert.equal(canRefund(r,Date.parse('2026-11-19T00:00:00+09:00')),false);});
+test('월/연도 경계 환불 계산',()=>{assert.equal(refundDeadline(Date.parse('2027-01-01T10:00:00+09:00')),Date.parse('2026-12-31T00:00:00+09:00'));});
+test('실제 승인 SQL: 동시간·겹치는 시간 중복 승인 방지, 만료 시 해제',()=>{
+ const db=new DatabaseSync(':memory:');db.exec(`CREATE TABLE slots(id TEXT PRIMARY KEY,start_at INTEGER,end_at INTEGER,active INTEGER);CREATE TABLE reservations(id TEXT PRIMARY KEY,slot_id TEXT,status TEXT,approved_at INTEGER,expires_at INTEGER);`);
+ const start=now+72*HOUR;
+ db.prepare('INSERT INTO slots VALUES(?,?,?,1)').run('s1',start,start+HOUR);db.prepare('INSERT INTO slots VALUES(?,?,?,1)').run('s2',start+HOUR/2,start+1.5*HOUR);
+ for(const [id,slot]of [['r1','s1'],['r2','s1'],['r3','s2']])db.prepare("INSERT INTO reservations VALUES(?,?,'pending',NULL,NULL)").run(id,slot);
+ const approve=id=>db.prepare(APPROVE_SQL).run(now,approvalDeadline(now),id,now).changes;
+ assert.equal(approve('r1'),1);assert.equal(approve('r2'),0);assert.equal(approve('r3'),0);assert.equal(approve('r1'),0);
+ assert.equal(db.prepare(EXPIRE_SQL).run(approvalDeadline(now)).changes,1);assert.equal(approve('r3'),1);db.close();
+});
