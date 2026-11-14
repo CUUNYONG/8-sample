@@ -2,6 +2,14 @@
 
 PRD 기반의 홍보 및 예약 웹앱. Vinext/React와 Cloudflare D1을 사용한다.
 
+## Vercel 배포
+
+`vercel.json`이 Next.js 프레임워크와 `node scripts/build-vercel.mjs` 빌드 명령, `.next` 출력 경로를 지정한다. 기존 Sites 빌드는 `dist/`에 Worker를 생성하므로 Vercel의 Next.js 출력 형식과 호환되지 않는다.
+
+로컬 검증은 `pnpm build:vercel`, 실행은 `pnpm start:vercel`을 사용한다. Sites 전용 Cloudflare 모듈은 Next.js 빌드에서 빈 바인딩으로 교체한다. Vercel에서는 예약 DB 및 Sites 로그인 연동이 제공되지 않으므로 예약 API는 503 준비 중 응답을 반환하며 사용자 입력 헤더를 인증으로 사용하지 않는다. 홍보 화면과 준비 중 팝업은 정상 제공된다. 실제 예약 운영에는 Vercel용 DB와 인증 연동이 별도로 필요하다.
+
+GitHub `main` 푸시 후 Vercel 자동 배포 결과를 확인한다. 예전 배포 화면의 Redeploy는 예전 커밋을 다시 배포할 수 있으므로 최신 커밋의 배포를 확인한다.
+
 ## 현재 구현
 
 - 반응형 공간·신메뉴 소개, 프로그램 소개

@@ -2,6 +2,7 @@ import { db, identity, admin, sameOrigin, failure, expire } from '@/lib/server';
 import { approvalDeadline, canPay, canRefund, PRICE } from '@/lib/policy.mjs';
 import { APPROVE_SQL } from '@/lib/sql.mjs';
 export async function GET(req:Request){try{
+ if(process.env.VERCEL) return Response.json({error:'예약 서비스 준비 중입니다.'},{status:503});
  const isAdmin=new URL(req.url).searchParams.get('admin')==='1';const user=isAdmin?await admin():await identity();await expire();
  const slots=await db().prepare(`SELECT s.* FROM slots s WHERE active=1 AND start_at>? AND NOT EXISTS (SELECT 1 FROM reservations r JOIN slots x ON r.slot_id=x.id WHERE r.status IN ('awaiting_payment','confirmed','refund_requested') AND x.start_at<s.end_at AND s.start_at<x.end_at) ORDER BY start_at`).bind(Date.now()).all();
  const query=`SELECT r.*,s.start_at,s.end_at FROM reservations r JOIN slots s ON r.slot_id=s.id ${isAdmin?'':'WHERE r.user_id=?'} ORDER BY r.created_at DESC`;
@@ -9,6 +10,7 @@ export async function GET(req:Request){try{
  return Response.json({slots:slots.results,bookings:bookings.results,amount:PRICE,paymentReady:false},{headers:{'Cache-Control':'no-store'}});
  }catch(e){return failure(e);}}
 export async function POST(req:Request){try{
+ if(process.env.VERCEL) return Response.json({error:'예약 서비스 준비 중입니다.'},{status:503});
  sameOrigin(req);const user=await identity();const body=await req.json() as Record<string,string>;await expire();const {action,id}=body;
  if(action==='create'){
   const name=(body.name||'').trim(),phone=(body.phone||'').replace(/[^0-9]/g,'');
